@@ -51,6 +51,25 @@ trait Timer {
   def shutdown(): Unit
 }
 
+/**
+  * 时间轮调用的默认实现
+  * 内部成员变量taskExecutor是一个单线程的线程池用于执行任务（任务是什么？？？）
+  * timingWheel则是构建的一级时间轮
+  * delayQueue 是用来做什么的呢？这也是时间轮的重要组成部分，用于存储延时任务（为什么有了时间轮还需要这个？？？-后续介绍）
+  *
+  * 方法addTimerTaskEntry用来记录延时任务到时间轮，如果超时且没有取消，则直接执行任务
+  * 方法advanceClock用来拨动时钟（默认200ms一次），通过延时队列的poll方法阻塞的进行调用（如果不存在200ms内的延时任务，则此次拨动失败）这也解释了上面为什么说需要用delayQueue进行记录，
+  * 主要的目的还是为了将我们的无效时间拨动释放（和推拉模式很相似），时钟不需要主动的拨动，只需要别人触发即可
+  *
+  * 触发之后如果存在数据，则首先通过advanceClock方法进行时钟拨动，首先改变当前下标时间的值，然后递归调用下层时间轮的advanceClock方法
+  * 然后调用flush的回调函数回调addTimerTaskEntry方法进行插入，此时记住如果超时则添加到任务池，准备执行，否则如果为下层时间轮的数据，则有可能将其添加到上层的时间轮
+  *
+  *
+  * @param executorName
+  * @param tickMs
+  * @param wheelSize
+  * @param startMs
+  */
 @threadsafe
 class SystemTimer(executorName: String,
                   tickMs: Long = 1,
@@ -87,7 +106,11 @@ class SystemTimer(executorName: String,
     }
   }
 
-  private def addTimerTaskEntry(timerTaskEntry: TimerTaskEntry): Unit = {
+  /**
+    * 添加任务到时间轮，如果不需要添加，则判断是否取消，如果没有取消，则说明任务已经可以直接执行。提交任务到线程池进行执行
+    * @param timerTaskEntry
+    */
+  private def  addTimerTaskEntry(timerTaskEntry: TimerTaskEntry): Unit = {
     if (!timingWheel.add(timerTaskEntry)) {
       // Already expired or cancelled
       if (!timerTaskEntry.cancelled)
