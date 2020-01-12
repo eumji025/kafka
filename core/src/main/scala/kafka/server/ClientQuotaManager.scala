@@ -153,7 +153,7 @@ object ClientQuotaManager {
  *
  * @param config @ClientQuotaManagerConfig quota configs
  * @param metrics @Metrics Metrics instance
- * @param quotaType Quota type of this quota manager
+ * @param quotaType quota type of this quota manager
  * @param time @Time object to use
  */
 class ClientQuotaManager(private val config: ClientQuotaManagerConfig,

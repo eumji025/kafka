@@ -125,8 +125,11 @@ public class KafkaChannel {
     public void prepare() throws AuthenticationException, IOException {
         boolean authenticating = false;
         try {
+            //如果传输的没有准备好，
             if (!transportLayer.ready())
+                //则进行握手协议
                 transportLayer.handshake();
+            //判断已经准备好，且没有认证
             if (transportLayer.ready() && !authenticator.complete()) {
                 authenticating = true;
                 authenticator.authenticate();

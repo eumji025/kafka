@@ -35,6 +35,7 @@ class KafkaServerStartable(val staticServerConfig: KafkaConfig, reporters: Seq[K
   def this(serverConfig: KafkaConfig) = this(serverConfig, Seq.empty)
 
   def startup() {
+    //其实就是调用server的启动
     try server.startup()
     catch {
       case _: Throwable =>

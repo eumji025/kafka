@@ -448,18 +448,24 @@ public class Selector implements Selectable, AutoCloseable {
 
         /* check ready keys */
         long startSelect = time.nanoseconds();
+        //等待请求
         int numReadyKeys = select(timeout);
+
         long endSelect = time.nanoseconds();
+        //记录事件
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds());
 
         if (numReadyKeys > 0 || !immediatelyConnectedKeys.isEmpty() || dataInBuffers) {
+            //获取请求的key
             Set<SelectionKey> readyKeys = this.nioSelector.selectedKeys();
 
             // Poll from channels that have buffered data (but nothing more from the underlying socket)
             if (dataInBuffers) {
+                //移除所有准备好的
                 keysWithBufferedRead.removeAll(readyKeys); //so no channel gets polled twice
                 Set<SelectionKey> toPoll = keysWithBufferedRead;
                 keysWithBufferedRead = new HashSet<>(); //poll() calls will repopulate if needed
+                //进行
                 pollSelectionKeys(toPoll, false, endSelect);
             }
 
@@ -486,6 +492,7 @@ public class Selector implements Selectable, AutoCloseable {
 
         // Add to completedReceives after closing expired connections to avoid removing
         // channels with completed receives until all staged receives are completed.
+        //记录到接收完成
         addToCompletedReceives();
     }
 
@@ -500,6 +507,7 @@ public class Selector implements Selectable, AutoCloseable {
                            boolean isImmediatelyConnected,
                            long currentTimeNanos) {
         for (SelectionKey key : determineHandlingOrder(selectionKeys)) {
+            //获取channel
             KafkaChannel channel = channel(key);
             long channelStartTimeNanos = recordTimePerConnection ? time.nanoseconds() : 0;
             boolean sendFailed = false;
@@ -512,9 +520,12 @@ public class Selector implements Selectable, AutoCloseable {
             try {
                 /* complete any connections that have finished their handshake (either normally or immediately) */
                 if (isImmediatelyConnected || key.isConnectable()) {
+                    //完成连接
                     if (channel.finishConnect()) {
+                        //记录到连接的列表
                         this.connected.add(channel.id());
                         this.sensors.connectionCreated.record();
+                        //获取channel
                         SocketChannel socketChannel = (SocketChannel) key.channel();
                         log.debug("Created socket with SO_RCVBUF = {}, SO_SNDBUF = {}, SO_TIMEOUT = {} to node {}",
                                 socketChannel.socket().getReceiveBufferSize(),
@@ -529,6 +540,7 @@ public class Selector implements Selectable, AutoCloseable {
                 /* if channel is not ready finish prepare */
                 if (channel.isConnected() && !channel.ready()) {
                     try {
+                        //判断是否已经准备连接了
                         channel.prepare();
                     } catch (AuthenticationException e) {
                         sensors.failedAuthentication.record();
@@ -538,8 +550,9 @@ public class Selector implements Selectable, AutoCloseable {
                         sensors.successfulAuthentication.record();
                 }
 
+                //读取数据
                 attemptRead(key, channel);
-
+                //判断是否还有buffer（我理解为粘包）
                 if (channel.hasBytesBuffered()) {
                     //this channel has bytes enqueued in intermediary buffers that we could not read
                     //(possibly because no memory). it may be the case that the underlying socket will
@@ -551,14 +564,17 @@ public class Selector implements Selectable, AutoCloseable {
                 }
 
                 /* if channel is ready write to any sockets that have space in their buffer and for which we have data */
+                //写操作
                 if (channel.ready() && key.isWritable()) {
                     Send send;
                     try {
+                        //则进行写操作，到channel
                         send = channel.write();
                     } catch (Exception e) {
                         sendFailed = true;
                         throw e;
                     }
+                    //记录已经完成
                     if (send != null) {
                         this.completedSends.add(send);
                         this.sensors.recordBytesSent(channel.id(), send.size());
@@ -588,6 +604,11 @@ public class Selector implements Selectable, AutoCloseable {
         }
     }
 
+    /**
+     * 随机排序
+     * @param selectionKeys
+     * @return
+     */
     private Collection<SelectionKey> determineHandlingOrder(Set<SelectionKey> selectionKeys) {
         //it is possible that the iteration order over selectionKeys is the same every invocation.
         //this may cause starvation of reads when memory is low. to address this we shuffle the keys if memory is low.

@@ -1689,10 +1689,12 @@ class Log(@volatile var dir: File,
         return
       debug(s"Flushing log up to offset $offset, last flushed: $lastFlushTime,  current time: ${time.milliseconds()}, " +
         s"unflushed: $unflushedMessages")
+      //分段进行刷盘
       for (segment <- logSegments(this.recoveryPoint, offset))
         segment.flush()
 
       lock synchronized {
+        //检查内存的buffer是否关闭
         checkIfMemoryMappedBufferClosed()
         if (offset > this.recoveryPoint) {
           this.recoveryPoint = offset

@@ -391,27 +391,32 @@ class LogManager(logDirs: Seq[File],
     /* Schedule the cleanup task to delete old logs */
     if (scheduler != null) {
       info("Starting log cleanup with a period of %d ms.".format(retentionCheckMs))
+      //队队员
       scheduler.schedule("kafka-log-retention",
                          cleanupLogs _,
                          delay = InitialTaskDelayMs,
                          period = retentionCheckMs,
                          TimeUnit.MILLISECONDS)
       info("Starting log flusher with a default period of %d ms.".format(flushCheckMs))
+      //日志刷盘 的任务
       scheduler.schedule("kafka-log-flusher",
                          flushDirtyLogs _,
                          delay = InitialTaskDelayMs,
                          period = flushCheckMs,
                          TimeUnit.MILLISECONDS)
+      //从检查点回复
       scheduler.schedule("kafka-recovery-point-checkpoint",
                          checkpointLogRecoveryOffsets _,
                          delay = InitialTaskDelayMs,
                          period = flushRecoveryOffsetCheckpointMs,
                          TimeUnit.MILLISECONDS)
+      //检查offset
       scheduler.schedule("kafka-log-start-offset-checkpoint",
                          checkpointLogStartOffsets _,
                          delay = InitialTaskDelayMs,
                          period = flushStartOffsetCheckpointMs,
                          TimeUnit.MILLISECONDS)
+      //删除日志
       scheduler.schedule("kafka-delete-logs", // will be rescheduled after each delete logs with a dynamic period
                          deleteLogs _,
                          delay = InitialTaskDelayMs,
@@ -723,26 +728,37 @@ class LogManager(logDirs: Seq[File],
 
   /**
    *  Delete logs marked for deletion. Delete all logs for which `currentDefaultConfig.fileDeleteDelayMs`
+   *  删除为了标记状态的日志，删除所有含有`currentDefaultConfig.fileDeleteDelayMs`
    *  has elapsed after the delete was scheduled. Logs for which this interval has not yet elapsed will be
+   *  且满足条件的将会被调度。 尚未经过此周期迭代的
    *  considered for deletion in the next iteration of `deleteLogs`. The next iteration will be executed
+   *  将会在下一个周期进行删除。下一个将会在最后一个未删除的剩余时间之后。
    *  after the remaining time for the first log that is not deleted. If there are no more `logsToBeDeleted`,
+   *  如果有没更多需要被删除的日志，那么就会在currentDefaultConfig.fileDeleteDelayMs周期后继续进行
    *  `deleteLogs` will be executed after `currentDefaultConfig.fileDeleteDelayMs`.
    */
   private def deleteLogs(): Unit = {
     var nextDelayMs = 0L
     try {
+      //下一次执行的时间
+      //如果存在需要被删除的，就是调度的时间+延时的时间 - 当前的时间
+      //如果没有则直接等待延时的时间
       def nextDeleteDelayMs: Long = {
         if (!logsToBeDeleted.isEmpty) {
+          //获取调度的时间
           val (_, scheduleTimeMs) = logsToBeDeleted.peek()
+          //调度的时间+删除延时的时间，减去当前的时间，等于下次的间隔
           scheduleTimeMs + currentDefaultConfig.fileDeleteDelayMs - time.milliseconds()
         } else
           currentDefaultConfig.fileDeleteDelayMs
       }
-
+      //循环调度
       while ({nextDelayMs = nextDeleteDelayMs; nextDelayMs <= 0}) {
+        //获取要被删除的日志
         val (removedLog, _) = logsToBeDeleted.take()
         if (removedLog != null) {
           try {
+            //删除
             removedLog.delete()
             info(s"Deleted log for partition ${removedLog.topicPartition} in ${removedLog.dir.getAbsolutePath}.")
           } catch {
@@ -756,6 +772,7 @@ class LogManager(logDirs: Seq[File],
         error(s"Exception in kafka-delete-logs thread.", e)
     } finally {
       try {
+        //理论上循环不会结束，但是如果真的结束，则重启一个调度任务
         scheduler.schedule("kafka-delete-logs",
           deleteLogs _,
           delay = nextDelayMs,
@@ -949,12 +966,15 @@ class LogManager(logDirs: Seq[File],
   private def flushDirtyLogs(): Unit = {
     debug("Checking for dirty logs to flush...")
 
+    //当前的日志和未来的日志组合
     for ((topicPartition, log) <- currentLogs.toList ++ futureLogs.toList) {
       try {
+        //判断是否已经过了刷盘的等待时间
         val timeSinceLastFlush = time.milliseconds - log.lastFlushTime
         debug("Checking if flush is needed on " + topicPartition.topic + " flush interval  " + log.config.flushMs +
               " last flushed " + log.lastFlushTime + " time since last flush: " + timeSinceLastFlush)
         if(timeSinceLastFlush >= log.config.flushMs)
+          //进行刷盘
           log.flush
       } catch {
         case e: Throwable =>
@@ -964,6 +984,10 @@ class LogManager(logDirs: Seq[File],
   }
 }
 
+
+/**
+ *
+ */
 object LogManager {
 
   val RecoveryPointCheckpointFile = "recovery-point-offset-checkpoint"
@@ -978,15 +1002,20 @@ object LogManager {
             time: Time,
             brokerTopicStats: BrokerTopicStats,
             logDirFailureChannel: LogDirFailureChannel): LogManager = {
+    //复制配置
     val defaultProps = KafkaServer.copyKafkaConfigToLog(config)
+    //构建日志的配置对象
     val defaultLogConfig = LogConfig(defaultProps)
 
+
     // read the log configurations from zookeeper
+    //从kafka获取配置
     val (topicConfigs, failed) = zkClient.getLogConfigs(zkClient.getAllTopicsInCluster, defaultProps)
     if (!failed.isEmpty) throw failed.head._2
 
     val cleanerConfig = LogCleaner.cleanerConfig(config)
 
+    //构建日志管理器对象
     new LogManager(logDirs = config.logDirs.map(new File(_).getAbsoluteFile),
       initialOfflineDirs = initialOfflineDirs.map(new File(_).getAbsoluteFile),
       topicConfigs = topicConfigs,

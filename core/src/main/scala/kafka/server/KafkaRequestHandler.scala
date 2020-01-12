@@ -31,6 +31,8 @@ import scala.collection.mutable
 
 /**
  * A thread that answers kafka requests.
+ *
+ * 从requestQueue获取请求，然后将请求转发给[[KafkaApis]]
  */
 class KafkaRequestHandler(id: Int,
                           brokerId: Int,
@@ -50,10 +52,11 @@ class KafkaRequestHandler(id: Int,
       // time_window is independent of the number of threads, each recorded idle
       // time should be discounted by # threads.
       val startSelectTime = time.nanoseconds
-
+      //从requestchannel中进行获取
       val req = requestChannel.receiveRequest(300)
       val endTime = time.nanoseconds
       val idleTime = endTime - startSelectTime
+      //标记
       aggregateIdleMeter.mark(idleTime / totalHandlerThreads.get)
 
       req match {
@@ -66,6 +69,7 @@ class KafkaRequestHandler(id: Int,
           try {
             request.requestDequeueTimeNanos = endTime
             trace(s"Kafka request handler $id on broker $brokerId handling request $request")
+            //交给kafkaApis进行处理
             apis.handle(request)
           } catch {
             case e: FatalExitError =>
@@ -104,12 +108,15 @@ class KafkaRequestHandlerPool(val brokerId: Int,
 
   this.logIdent = "[Kafka Request Handler on Broker " + brokerId + "], "
   val runnables = new mutable.ArrayBuffer[KafkaRequestHandler](numThreads)
+  //创建并启动handler
   for (i <- 0 until numThreads) {
     createHandler(i)
   }
 
   def createHandler(id: Int): Unit = synchronized {
+    //创建处理请求的handler
     runnables += new KafkaRequestHandler(id, brokerId, aggregateIdleMeter, threadPoolSize, requestChannel, apis, time)
+    //启动handler
     KafkaThread.daemon("kafka-request-handler-" + id, runnables(id)).start()
   }
 

@@ -23,12 +23,22 @@ import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.server.quota.ClientQuotaCallback
 import org.apache.kafka.common.utils.Time
 
+/**
+ * 限速类型
+ * quota表示的是 配额
+ */
 object QuotaType  {
+  //fetch，表示的是副本拉取kafka日志
   case object Fetch extends QuotaType
+  //表示生产
   case object Produce extends QuotaType
+  //表示的是request类型
   case object Request extends QuotaType
+  //表示的是leader的副本
   case object LeaderReplication extends QuotaType
+  //表示的是follower的副本
   case object FollowerReplication extends QuotaType
+  //alterLog还不知道是干嘛的
   case object AlterLogDirsReplication extends QuotaType
 }
 sealed trait QuotaType
@@ -60,6 +70,9 @@ object QuotaFactory extends Logging {
 
     val clientQuotaCallback = Option(cfg.getConfiguredInstance(KafkaConfig.ClientQuotaCallbackClassProp,
       classOf[ClientQuotaCallback]))
+
+    //构建限速的管理器，主要还是为了防止机器负载过高，挂机
+    //非常有用，目前只看过fetch的相关内容，主要就是防止同步的操作占用大量的资源，所以对速率进行控制，具体可以通过配置进行限制
     QuotaManagers(
       new ClientQuotaManager(clientFetchConfig(cfg), metrics, Fetch, time, threadNamePrefix, clientQuotaCallback),
       new ClientQuotaManager(clientProduceConfig(cfg), metrics, Produce, time, threadNamePrefix, clientQuotaCallback),

@@ -27,6 +27,19 @@ import org.apache.kafka.common.utils.{Java, LoggingSignalHandler, OperatingSyste
 
 import scala.collection.JavaConverters._
 
+
+/**
+ * 这是kafka broker的入口。
+ * kafka broker就是一个独立的进程
+ *
+ * 只是启动后每个broker都会成为一种角色。就产生了主备的关系，同时kafka又是多分区的。
+ *
+ * 这些都需要在后续的立方进行阅读
+ *
+ * 当前这个类的主要作用就是解析参数，实际上的启动都是由[[KafkaServer]]
+ *
+ *
+ */
 object Kafka extends Logging {
 
   def getPropsFromArgs(args: Array[String]): Properties = {
@@ -53,9 +66,15 @@ object Kafka extends Logging {
     props
   }
 
+  /**
+   * main方法启动
+   * @param args
+   */
   def main(args: Array[String]): Unit = {
     try {
+      //解析参数
       val serverProps = getPropsFromArgs(args)
+      //根据配置构建KafkaServerStartable对象，没错就是KafkaServer的包装
       val kafkaServerStartable = KafkaServerStartable.fromProps(serverProps)
 
       try {
@@ -68,11 +87,14 @@ object Kafka extends Logging {
       }
 
       // attach shutdown handler to catch terminating signals as well as normal termination
+      //注册shutdown的钩子函数
       Runtime.getRuntime().addShutdownHook(new Thread("kafka-shutdown-hook") {
         override def run(): Unit = kafkaServerStartable.shutdown()
       })
 
+      // 启动kafkaServer
       kafkaServerStartable.startup()
+      //等待关闭，没有异常都不会结束
       kafkaServerStartable.awaitShutdown()
     }
     catch {
